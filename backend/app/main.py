@@ -5,7 +5,7 @@ from strawberry.fastapi import GraphQLRouter
 from dotenv import load_dotenv
 
 from .graphql_schema import schema
-from .database import engine, Base
+from .database import Base  # Remove engine from import to avoid conflicts
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +21,7 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",  # React frontend
     "http://localhost:5173",  # Vite
+    "*",  # Allow all origins for testing
     os.getenv("FRONTEND_URL", ""),  # Deployed frontend URL
 ]
 
@@ -45,18 +46,24 @@ async def startup_event():
     # Create database tables if they don't exist
     # Note: Production should use migrations
     import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine
-    
-    engine = create_async_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./pokemon.db"))
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        
-    # Check if there are any Pokemon in the database
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.future import select
     from sqlalchemy.orm import sessionmaker
     from .models.pokemon import Pokemon
     
+    # Ensure we're using the aiosqlite driver explicitly
+    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./pokemon.db")
+    if db_url.startswith("sqlite:///"):
+        # Convert non-async URL to async URL
+        db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    
+    engine = create_async_engine(db_url)
+    
+    # Create tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Check if there are any Pokemon in the database
     async_session = sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
