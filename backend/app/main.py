@@ -43,85 +43,94 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
-    # Create database tables if they don't exist
-    # Note: Production should use migrations
-    import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.future import select
-    from sqlalchemy.orm import sessionmaker
-    from .models.pokemon import Pokemon
+    # Create database tables if they don't exist and populate if empty
+    # Using synchronous approach to avoid greenlet issues
+    import threading
     
-    # Ensure we're using the aiosqlite driver explicitly
-    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./pokemon.db")
-    if db_url.startswith("sqlite:///"):
-        # Convert non-async URL to async URL
-        db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
-    
-    engine = create_async_engine(db_url)
-    
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    # Check if there are any Pokemon in the database
-    async_session = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    
-    async with async_session() as session:
-        result = await session.execute(select(Pokemon))
-        if not result.scalars().first():
-            print("No Pokemon found in database. Populating database with Pokemon data...")
-            # Populate the database with Pokemon data
-            import requests
-            from .models.pokemon import Type
-            
-            # Populate with initial Pokemon
-            pokemon_limit = 50  # You can adjust this number as needed
-            
-            # Fetch Pokemon list from PokeAPI
-            response = requests.get(f"https://pokeapi.co/api/v2/pokemon?limit={pokemon_limit}")
-            pokemon_list = response.json()["results"]
-            
-            for i, pokemon_entry in enumerate(pokemon_list):
-                print(f"Processing Pokemon {i+1}/{len(pokemon_list)}: {pokemon_entry['name']}")
+    def setup_db():
+        from sqlalchemy import create_engine, inspect
+        from sqlalchemy.orm import sessionmaker
+        import requests
+        
+        # Use synchronous SQLAlchemy to avoid greenlet issues
+        from .models.pokemon import Pokemon, Type
+        
+        # Database setup - Use synchronous SQLAlchemy
+        DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./pokemon.db")
+        if DATABASE_URL.startswith("sqlite+aiosqlite:"):
+            DATABASE_URL = DATABASE_URL.replace("sqlite+aiosqlite:", "sqlite:")
+        
+        # Create engine and session
+        engine = create_engine(DATABASE_URL)
+        Session = sessionmaker(bind=engine)
+        
+        # Create tables if they don't exist
+        Base.metadata.create_all(engine)
+        
+        # Check if there are any Pokemon in the database
+        session = Session()
+        try:
+            pokemon_count = session.query(Pokemon).count()
+            if pokemon_count == 0:
+                print("No Pokemon found in database. Populating database with Pokemon data...")
                 
-                pokemon_url = pokemon_entry["url"]
-                try:
-                    pokemon_data = requests.get(pokemon_url).json()
+                # Populate with initial Pokemon
+                pokemon_limit = 50  # You can adjust this number as needed
+                
+                # Fetch Pokemon list from PokeAPI
+                response = requests.get(f"https://pokeapi.co/api/v2/pokemon?limit={pokemon_limit}")
+                pokemon_list = response.json()["results"]
+                
+                print(f"Fetched {len(pokemon_list)} Pokemon. Now adding to database...")
+                
+                for i, pokemon_entry in enumerate(pokemon_list):
+                    print(f"Processing Pokemon {i+1}/{len(pokemon_list)}: {pokemon_entry['name']}")
                     
-                    # Extract Pokemon details
-                    pokemon = Pokemon(
-                        id=pokemon_data["id"],
-                        name=pokemon_data["name"],
-                        height=pokemon_data["height"],
-                        weight=pokemon_data["weight"],
-                        image_url=pokemon_data["sprites"]["other"]["official-artwork"]["front_default"]
-                    )
-                    
-                    session.add(pokemon)
-                    
-                    # Add types
-                    for type_data in pokemon_data["types"]:
-                        type_name = type_data["type"]["name"]
-                        # Check if type exists
-                        type_result = await session.execute(select(Type).where(Type.name == type_name))
-                        type_obj = type_result.scalars().first()
+                    pokemon_url = pokemon_entry["url"]
+                    try:
+                        pokemon_data = requests.get(pokemon_url).json()
                         
-                        if not type_obj:
-                            type_obj = Type(name=type_name)
-                            session.add(type_obj)
-                            await session.flush()
+                        # Extract Pokemon details
+                        pokemon = Pokemon(
+                            id=pokemon_data["id"],
+                            name=pokemon_data["name"],
+                            height=pokemon_data["height"],
+                            weight=pokemon_data["weight"],
+                            image_url=pokemon_data["sprites"]["other"]["official-artwork"]["front_default"]
+                        )
                         
-                        pokemon.types.append(type_obj)
-                    
-                    await session.commit()
-                    print(f"Added Pokemon: {pokemon.name} (ID: {pokemon.id})")
-                    
-                except Exception as e:
-                    print(f"Error adding Pokemon {pokemon_entry['name']}: {e}")
-                    await session.rollback()
-            
-            print("Finished populating database!")
-        else:
-            print("Database already has Pokemon data.")
+                        session.add(pokemon)
+                        
+                        # Add types
+                        for type_data in pokemon_data["types"]:
+                            type_name = type_data["type"]["name"]
+                            # Check if type exists
+                            type_obj = session.query(Type).filter_by(name=type_name).first()
+                            
+                            if not type_obj:
+                                type_obj = Type(name=type_name)
+                                session.add(type_obj)
+                                session.flush()
+                            
+                            pokemon.types.append(type_obj)
+                        
+                        # Commit after each Pokemon
+                        session.commit()
+                        print(f"Added Pokemon: {pokemon.name} (ID: {pokemon.id})")
+                        
+                    except Exception as e:
+                        print(f"Error adding Pokemon {pokemon_entry['name']}: {e}")
+                        session.rollback()
+                
+                print("Finished populating database!")
+            else:
+                print(f"Database already has {pokemon_count} Pokemon.")
+        finally:
+            session.close()
+    
+    # Run database setup in a separate thread to not block the main event loop
+    db_thread = threading.Thread(target=setup_db)
+    db_thread.start()
+    
+    # Optional: Wait for the thread to complete if you want to ensure DB is ready before serving requests
+    # db_thread.join()
