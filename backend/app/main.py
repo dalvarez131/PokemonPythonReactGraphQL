@@ -71,4 +71,57 @@ async def startup_event():
     async with async_session() as session:
         result = await session.execute(select(Pokemon))
         if not result.scalars().first():
-            print("No Pokemon found in database. Run the populate_db.py script to populate the database.")
+            print("No Pokemon found in database. Populating database with Pokemon data...")
+            # Populate the database with Pokemon data
+            import requests
+            from .models.pokemon import Type
+            
+            # Populate with initial Pokemon
+            pokemon_limit = 50  # You can adjust this number as needed
+            
+            # Fetch Pokemon list from PokeAPI
+            response = requests.get(f"https://pokeapi.co/api/v2/pokemon?limit={pokemon_limit}")
+            pokemon_list = response.json()["results"]
+            
+            for i, pokemon_entry in enumerate(pokemon_list):
+                print(f"Processing Pokemon {i+1}/{len(pokemon_list)}: {pokemon_entry['name']}")
+                
+                pokemon_url = pokemon_entry["url"]
+                try:
+                    pokemon_data = requests.get(pokemon_url).json()
+                    
+                    # Extract Pokemon details
+                    pokemon = Pokemon(
+                        id=pokemon_data["id"],
+                        name=pokemon_data["name"],
+                        height=pokemon_data["height"],
+                        weight=pokemon_data["weight"],
+                        image_url=pokemon_data["sprites"]["other"]["official-artwork"]["front_default"]
+                    )
+                    
+                    session.add(pokemon)
+                    
+                    # Add types
+                    for type_data in pokemon_data["types"]:
+                        type_name = type_data["type"]["name"]
+                        # Check if type exists
+                        type_result = await session.execute(select(Type).where(Type.name == type_name))
+                        type_obj = type_result.scalars().first()
+                        
+                        if not type_obj:
+                            type_obj = Type(name=type_name)
+                            session.add(type_obj)
+                            await session.flush()
+                        
+                        pokemon.types.append(type_obj)
+                    
+                    await session.commit()
+                    print(f"Added Pokemon: {pokemon.name} (ID: {pokemon.id})")
+                    
+                except Exception as e:
+                    print(f"Error adding Pokemon {pokemon_entry['name']}: {e}")
+                    await session.rollback()
+            
+            print("Finished populating database!")
+        else:
+            print("Database already has Pokemon data.")
