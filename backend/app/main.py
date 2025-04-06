@@ -17,17 +17,17 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Set up CORS
+# Set up CORS - Ensure all origins are allowed including Vercel
 origins = [
     "http://localhost:3000",  # React frontend
     "http://localhost:5173",  # Vite
+    "https://pokemon-python-react-graphql.vercel.app",  # Vercel frontend
     "*",  # Allow all origins for testing
-    os.getenv("FRONTEND_URL", ""),  # Deployed frontend URL
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
