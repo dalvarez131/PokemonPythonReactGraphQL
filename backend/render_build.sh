@@ -8,16 +8,12 @@ pip install -r requirements.txt
 
 # Create a simple script to populate the database
 cat > populate_db.py << 'EOF'
-import asyncio
 import os
 import sys
 import requests
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Table
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy import Column, Integer, String, ForeignKey, Table
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.future import select
 
 # Define models directly in this script to avoid import issues
 Base = declarative_base()
@@ -54,39 +50,37 @@ class Pokemon(Base):
     def __repr__(self):
         return f"<Pokemon(name='{self.name}')>"
 
-# Database setup
+# Database setup - Use synchronous SQLAlchemy
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./pokemon.db")
-ASYNC_DATABASE_URL = DATABASE_URL
-if DATABASE_URL.startswith("sqlite:///"):
-    ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+# Ensure we're using a synchronous URL
+if DATABASE_URL.startswith("sqlite+aiosqlite:"):
+    DATABASE_URL = DATABASE_URL.replace("sqlite+aiosqlite:", "sqlite:")
 
-# Create async engine and session
-async_engine = create_async_engine(ASYNC_DATABASE_URL)
-async_session = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+# Create engine and session
+engine = create_engine(DATABASE_URL)
+Session = sessionmaker(bind=engine)
 
-async def init_db():
+def init_db():
     print("Initializing database...")
-    async with async_engine.begin() as conn:
-        # Drop all tables first to ensure a clean database
-        await conn.run_sync(Base.metadata.drop_all)
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
+    # Drop all tables first to ensure a clean database
+    Base.metadata.drop_all(engine)
+    # Create all tables
+    Base.metadata.create_all(engine)
     print("Database initialized.")
 
-async def get_or_create_type(session, type_name):
-    result = await session.execute(select(Type).where(Type.name == type_name))
-    type_obj = result.scalars().first()
+def get_or_create_type(session, type_name):
+    type_obj = session.query(Type).filter_by(name=type_name).first()
     
     if not type_obj:
         type_obj = Type(name=type_name)
         session.add(type_obj)
-        await session.commit()
+        session.commit()
         
     return type_obj
 
-async def populate_pokemon(limit=150):
+def populate_pokemon(limit=150):
     print(f"Starting to populate with {limit} Pokemon...")
-    await init_db()
+    init_db()
     
     # Fetch Pokemon list from PokeAPI
     print("Fetching Pokemon list from PokeAPI...")
@@ -95,7 +89,8 @@ async def populate_pokemon(limit=150):
     
     print(f"Fetched {len(pokemon_list)} Pokemon. Now adding to database...")
     
-    async with async_session() as session:
+    session = Session()
+    try:
         for i, pokemon_entry in enumerate(pokemon_list):
             print(f"Processing Pokemon {i+1}/{len(pokemon_list)}: {pokemon_entry['name']}")
             
@@ -116,18 +111,25 @@ async def populate_pokemon(limit=150):
             # Add types
             for type_data in pokemon_data["types"]:
                 type_name = type_data["type"]["name"]
-                type_obj = await get_or_create_type(session, type_name)
+                type_obj = get_or_create_type(session, type_name)
                 pokemon.types.append(type_obj)
             
-            await session.commit()
+            # Commit after each Pokemon to avoid long transactions
+            session.commit()
             print(f"Added Pokemon: {pokemon.name} (ID: {pokemon.id})")
     
-    print("Finished populating database!")
+        print("Finished populating database!")
+    except Exception as e:
+        print(f"Error populating database: {e}")
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 # Run the script
 if __name__ == "__main__":
     print("Running database population script...")
-    asyncio.run(populate_pokemon(50))
+    populate_pokemon(50)
     print("Script completed successfully!")
 EOF
 
