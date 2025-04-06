@@ -1,14 +1,38 @@
 import { gql } from '@apollo/client';
 
 export const GET_POKEMONS = gql`
-  query GetPokemons {
-    pokemons {
+  query GetPokemons($page: Int!, $perPage: Int!) {
+    pokemons(page: $page, perPage: $perPage) {
       id
       name
       imageUrl
       types {
         id
         name
+      }
+    }
+  }
+`;
+
+export const GET_POKEMONS_WITH_PAGINATION = gql`
+  query GetPokemonsWithPagination($page: Int!, $perPage: Int!) {
+    pokemonsPage(page: $page, perPage: $perPage) {
+      pokemons {
+        id
+        name
+        imageUrl
+        types {
+          id
+          name
+        }
+      }
+      pageInfo {
+        total
+        page
+        perPage
+        pages
+        hasNext
+        hasPrev
       }
     }
   }
