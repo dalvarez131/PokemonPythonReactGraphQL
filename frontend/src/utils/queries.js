@@ -2,13 +2,18 @@ import { gql } from '@apollo/client';
 
 export const GET_POKEMONS = gql`
   query GetPokemons($page: Int!, $perPage: Int!) {
-    pokemons(page: $page, perPage: $perPage) {
-      id
-      name
-      imageUrl
-      types {
+    pokemonsPage(page: $page, perPage: $perPage) {
+      items {
         id
         name
+        imageUrl
+        types {
+          name
+        }
+      }
+      pageInfo {
+        total
+        lastPage
       }
     }
   }
@@ -17,9 +22,11 @@ export const GET_POKEMONS = gql`
 export const GET_POKEMONS_WITH_PAGINATION = gql`
   query GetPokemonsWithPagination($page: Int!, $perPage: Int!) {
     pokemonsPage(page: $page, perPage: $perPage) {
-      pokemons {
+      items {
         id
         name
+        height
+        weight
         imageUrl
         types {
           id
@@ -28,11 +35,11 @@ export const GET_POKEMONS_WITH_PAGINATION = gql`
       }
       pageInfo {
         total
-        page
         perPage
-        pages
-        hasNext
-        hasPrev
+        currentPage
+        lastPage
+        hasNextPage
+        hasPreviousPage
       }
     }
   }
@@ -50,13 +57,15 @@ export const GET_POKEMON_BY_ID = gql`
         id
         name
       }
+      abilities
+      cries
     }
   }
 `;
 
 export const GET_POKEMON_BY_NAME = gql`
-  query GetPokemonByName($name: String!) {
-    pokemonByName(name: $name) {
+  query GetPokemonByName($pokemonName: String!) {
+    pokemonByName(pokemonName: $pokemonName) {
       id
       name
       height
@@ -66,6 +75,40 @@ export const GET_POKEMON_BY_NAME = gql`
         id
         name
       }
+      abilities
+      cries
     }
   }
-`; 
+`;
+
+export const GET_POKEMON_DETAILS = gql`
+  query GetPokemonDetails($id: Int!) {
+    pokemon(id: $id) {
+      id
+      name
+      types
+      height
+      weight
+      abilities
+      imageUrl
+      cryUrl
+    }
+  }
+`;
+
+export const GET_POKEMON_DETAIL = gql`
+  query GetPokemonDetail($pokemonId: Int!) {
+    pokemonById(pokemonId: $pokemonId) {
+      id
+      name
+      imageUrl
+      height
+      weight
+      types {
+        name
+      }
+      abilities
+      cries
+    }
+  }
+`;

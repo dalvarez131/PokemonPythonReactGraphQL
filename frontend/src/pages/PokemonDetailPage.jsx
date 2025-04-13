@@ -66,12 +66,12 @@ const PokemonDetailPage = () => {
           <div className="pokemon-detail-stats">
             <div className="pokemon-stat">
               <span className="pokemon-stat-label">Height</span>
-              <span>{pokemon.height / 10} m</span>
+              <span>{pokemon.height} cm</span>
             </div>
             
             <div className="pokemon-stat">
               <span className="pokemon-stat-label">Weight</span>
-              <span>{pokemon.weight / 10} kg</span>
+              <span>{pokemon.weight} g</span>
             </div>
           </div>
         </div>
