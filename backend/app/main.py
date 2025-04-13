@@ -75,7 +75,7 @@ async def startup_event():
                 print("No Pokemon found in database. Populating database with Pokemon data...")
                 
                 # Populate with more Pokemon (first 250 for a good variety)
-                pokemon_limit = 250  # Increased from 50 to 250
+                pokemon_limit = 500  # Increased from 50 to 250
                 
                 # Fetch Pokemon list from PokeAPI
                 response = requests.get(f"https://pokeapi.co/api/v2/pokemon?limit={pokemon_limit}")

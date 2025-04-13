@@ -21,8 +21,36 @@ class PokemonType:
     name: str
     height: int
     weight: int
-    image_url: str = strawberry.field(name="imageUrl")
+    imageUrl: str
     types: typing.List[TypeType]
+
+
+@strawberry.type
+class PokemonDetailType:
+    id: int
+    name: str
+    height: int
+    weight: int
+    imageUrl: str
+    types: typing.List[TypeType]
+    abilities: typing.List[str]
+    cries: str
+
+
+@strawberry.type
+class PageInfo:
+    total: int
+    perPage: int
+    currentPage: int
+    lastPage: int
+    hasNextPage: bool
+    hasPreviousPage: bool
+
+
+@strawberry.type
+class PokemonConnection:
+    items: typing.List[PokemonType]
+    pageInfo: PageInfo
 
 
 @strawberry.type
@@ -33,115 +61,114 @@ class Query:
         page: int = 1, 
         perPage: int = 15
     ) -> typing.List[PokemonType]:
-        # Validate input
-        if page < 1:
-            page = 1
-        if perPage < 1:
-            perPage = 15
-        if perPage > 100:  # Limit maximum items per page
-            perPage = 100
-            
-        async with AsyncSessionLocal() as db:
-            # Get total count
-            count_result = await db.execute(select(func.count(Pokemon.id)))
-            total = count_result.scalar()
-            
-            # Calculate pagination values
-            pages = (total + perPage - 1) // perPage
+        async with AsyncSessionLocal() as session:
             offset = (page - 1) * perPage
+            query = select(Pokemon).options(selectinload(Pokemon.types)).offset(offset).limit(perPage)
+            result = await session.execute(query)
+            pokemons = result.scalars().all()
             
-            # Get paginated results
-            result = await db.execute(
-                select(Pokemon)
-                .options(selectinload(Pokemon.types))
-                .order_by(Pokemon.id)
-                .offset(offset)
-                .limit(perPage)
-            )
-            return result.scalars().all()
+            return [
+                PokemonType(
+                    id=pokemon.id,
+                    name=pokemon.name,
+                    height=pokemon.height,
+                    weight=pokemon.weight,
+                    imageUrl=pokemon.image_url,
+                    types=[TypeType(id=t.id, name=t.name) for t in pokemon.types]
+                )
+                for pokemon in pokemons
+            ]
 
     @strawberry.field
-    async def pokemons_page(
+    async def pokemonsPage(
         self, 
         page: int = 1, 
         perPage: int = 15
-    ) -> "PokemonPage":
-        # Validate input
-        if page < 1:
-            page = 1
-        if perPage < 1:
-            perPage = 15
-        if perPage > 100:  # Limit maximum items per page
-            perPage = 100
+    ) -> PokemonConnection:
+        async with AsyncSessionLocal() as session:
+            # Obtener el total de Pokémon
+            count_query = select(Pokemon)
+            count_result = await session.execute(count_query)
+            total = len(count_result.scalars().all())
             
-        async with AsyncSessionLocal() as db:
-            # Get total count
-            count_result = await db.execute(select(func.count(Pokemon.id)))
-            total = count_result.scalar()
+            # Calcular información de paginación
+            last_page = (total + perPage - 1) // perPage
+            has_next_page = page < last_page
+            has_previous_page = page > 1
             
-            # Calculate pagination values
-            pages = (total + perPage - 1) // perPage
+            # Obtener los Pokémon de la página actual
             offset = (page - 1) * perPage
-            
-            # Get paginated results
-            result = await db.execute(
-                select(Pokemon)
-                .options(selectinload(Pokemon.types))
-                .order_by(Pokemon.id)
-                .offset(offset)
-                .limit(perPage)
-            )
+            query = select(Pokemon).options(selectinload(Pokemon.types)).offset(offset).limit(perPage)
+            result = await session.execute(query)
             pokemons = result.scalars().all()
             
-            # Create response object
-            page_info = PageInfo(
-                total=total,
-                page=page,
-                per_page=perPage,
-                pages=pages,
-                has_next=page < pages,
-                has_prev=page > 1
-            )
-            
-            return PokemonPage(
-                pokemons=pokemons,
-                page_info=page_info
+            return PokemonConnection(
+                items=[
+                    PokemonType(
+                        id=pokemon.id,
+                        name=pokemon.name,
+                        height=pokemon.height,
+                        weight=pokemon.weight,
+                        imageUrl=pokemon.image_url,
+                        types=[TypeType(id=t.id, name=t.name) for t in pokemon.types]
+                    )
+                    for pokemon in pokemons
+                ],
+                pageInfo=PageInfo(
+                    total=total,
+                    perPage=perPage,
+                    currentPage=page,
+                    lastPage=last_page,
+                    hasNextPage=has_next_page,
+                    hasPreviousPage=has_previous_page
+                )
             )
 
     @strawberry.field
-    async def pokemon_by_id(
+    async def pokemonById(
         self, 
         pokemonId: int = 1
-    ) -> typing.Optional[PokemonType]:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(Pokemon).options(selectinload(Pokemon.types)).where(Pokemon.id == pokemonId)
-            )
-            return result.scalars().first()
+    ) -> typing.Optional[PokemonDetailType]:
+        async with AsyncSessionLocal() as session:
+            query = select(Pokemon).options(selectinload(Pokemon.types)).where(Pokemon.id == pokemonId)
+            result = await session.execute(query)
+            pokemon = result.scalar_one_or_none()
+            
+            if pokemon:
+                return PokemonDetailType(
+                    id=pokemon.id,
+                    name=pokemon.name,
+                    height=pokemon.height,
+                    weight=pokemon.weight,
+                    imageUrl=pokemon.image_url,
+                    types=[TypeType(id=t.id, name=t.name) for t in pokemon.types],
+                    abilities=pokemon.abilities or [],
+                    cries=pokemon.cries or ""
+                )
+            return None
 
     @strawberry.field
-    async def pokemon_by_name(self, name: str) -> typing.Optional[PokemonType]:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(Pokemon).options(selectinload(Pokemon.types)).where(Pokemon.name == name)
-            )
-            return result.scalars().first()
-
-
-@strawberry.type
-class PageInfo:
-    total: int
-    page: int
-    per_page: int = strawberry.field(name="perPage")
-    pages: int
-    has_next: bool = strawberry.field(name="hasNext")
-    has_prev: bool = strawberry.field(name="hasPrev")
-
-
-@strawberry.type
-class PokemonPage:
-    pokemons: typing.List[PokemonType]
-    page_info: PageInfo = strawberry.field(name="pageInfo")
+    async def pokemonByName(
+        self, 
+        pokemonName: str
+    ) -> typing.Optional[PokemonDetailType]:
+        async with AsyncSessionLocal() as session:
+            query = select(Pokemon).options(selectinload(Pokemon.types)).where(Pokemon.name == pokemonName)
+            result = await session.execute(query)
+            pokemon = result.scalar_one_or_none()
+            
+            if pokemon:
+                return PokemonDetailType(
+                    id=pokemon.id,
+                    name=pokemon.name,
+                    height=pokemon.height,
+                    weight=pokemon.weight,
+                    imageUrl=pokemon.image_url,
+                    types=[TypeType(id=t.id, name=t.name) for t in pokemon.types],
+                    abilities=pokemon.abilities or [],
+                    cries=pokemon.cries or ""
+                )
+            return None
 
 
 schema = strawberry.Schema(Query)
